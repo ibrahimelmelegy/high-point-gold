@@ -4,10 +4,10 @@ import { getExchangeRates, getRate } from '../utils/exchangeRates'
 
 const CACHE_TTL = 60 * 1000 // 60 seconds
 
-// Finnhub symbols for metals
-const FINNHUB_SYMBOLS: Record<string, string> = {
-    'XAU': 'OANDA:XAU_USD',
-    'XAG': 'OANDA:XAG_USD',
+// Yahoo Finance symbols for metals
+const YAHOO_SYMBOLS: Record<string, string> = {
+    'XAU': 'GC=F',  // Gold futures (COMEX)
+    'XAG': 'SI=F',  // Silver futures (COMEX)
 }
 
 export default defineEventHandler(async (event) => {
@@ -20,18 +20,15 @@ export default defineEventHandler(async (event) => {
     const cached = getCached(cacheKey)
     if (cached) return cached
 
-    // Try Finnhub REST API (primary - 60 req/min free tier)
-    const finnhubKey = config.finnhubApiKey || process.env.FINNHUB_API_KEY || process.env.NUXT_FINNHUB_API_KEY
-    if (finnhubKey) {
-        try {
-            const data = await fetchFromFinnhub(metal, currency, finnhubKey)
-            if (data) {
-                setCache(cacheKey, data, CACHE_TTL)
-                return data
-            }
-        } catch (e: any) {
-            console.error('Finnhub metal failed:', e.message)
+    // Try Yahoo Finance (primary - free, no key needed)
+    try {
+        const data = await fetchFromYahoo(metal, currency)
+        if (data) {
+            setCache(cacheKey, data, CACHE_TTL)
+            return data
         }
+    } catch (e: any) {
+        console.error('Yahoo Finance failed:', e.message)
     }
 
     // Try GoldAPI as secondary (300 req/month free tier)
@@ -55,32 +52,35 @@ export default defineEventHandler(async (event) => {
     return mockData
 })
 
-async function fetchFromFinnhub(metal: string, currency: string, apiKey: string) {
-    const symbol = FINNHUB_SYMBOLS[metal]
+async function fetchFromYahoo(metal: string, currency: string) {
+    const symbol = YAHOO_SYMBOLS[metal]
     if (!symbol) return null
 
     const response = await fetch(
-        `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`,
-        { signal: AbortSignal.timeout(5000) }
+        `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d&range=1d`,
+        {
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+            signal: AbortSignal.timeout(8000)
+        }
     )
 
     if (!response.ok) {
-        console.error(`Finnhub metal HTTP ${response.status}`)
+        console.error(`Yahoo Finance HTTP ${response.status}`)
         return null
     }
 
-    const quote = await response.json()
-    // Finnhub quote: c=current, o=open, h=high, l=low, pc=previous close, t=timestamp
-    if (!quote || !quote.c || quote.c <= 0) {
-        console.error('Finnhub returned no price data for', symbol)
-        return null
-    }
+    const json = await response.json()
+    const result = json?.chart?.result?.[0]
+    if (!result) return null
 
-    const priceUSD = quote.c
-    const openUSD = quote.o || priceUSD
-    const highUSD = quote.h || priceUSD
-    const lowUSD = quote.l || priceUSD
-    const prevCloseUSD = quote.pc || priceUSD
+    const meta = result.meta
+    if (!meta?.regularMarketPrice || meta.regularMarketPrice <= 0) return null
+
+    const priceUSD = meta.regularMarketPrice
+    const prevCloseUSD = meta.chartPreviousClose || meta.previousClose || priceUSD
+    const openUSD = meta.regularMarketDayHigh ? (priceUSD - (meta.regularMarketDayHigh - priceUSD) * 0.3) : priceUSD
+    const highUSD = meta.regularMarketDayHigh || priceUSD
+    const lowUSD = meta.regularMarketDayLow || priceUSD
 
     // Convert to requested currency
     let rate = 1
@@ -96,9 +96,10 @@ async function fetchFromFinnhub(metal: string, currency: string, apiKey: string)
     const prevClose = prevCloseUSD * rate
 
     const now = new Date()
-    const result: any = {
-        timestamp: quote.t || Math.floor(now.getTime() / 1000),
-        metal, currency, exchange: 'FINNHUB', symbol: metal + currency,
+    const data: any = {
+        timestamp: meta.regularMarketTime || Math.floor(now.getTime() / 1000),
+        metal, currency, exchange: meta.exchangeName || 'COMEX',
+        symbol: metal + currency,
         prev_close_price: prevClose,
         open_price: openPrice,
         low_price: lowPrice,
@@ -112,15 +113,15 @@ async function fetchFromFinnhub(metal: string, currency: string, apiKey: string)
     }
 
     if (metal === 'XAU') {
-        result.price_gram_24k = price / 31.1035
-        result.price_gram_22k = (price / 31.1035) * 0.9167
-        result.price_gram_21k = (price / 31.1035) * 0.875
-        result.price_gram_18k = (price / 31.1035) * 0.75
+        data.price_gram_24k = price / 31.1035
+        data.price_gram_22k = (price / 31.1035) * 0.9167
+        data.price_gram_21k = (price / 31.1035) * 0.875
+        data.price_gram_18k = (price / 31.1035) * 0.75
     } else {
-        result.price_gram = price / 31.1035
+        data.price_gram = price / 31.1035
     }
 
-    return result
+    return data
 }
 
 async function fetchFromGoldAPI(metal: string, currency: string, apiKey: string) {
@@ -132,11 +133,7 @@ async function fetchFromGoldAPI(metal: string, currency: string, apiKey: string)
         signal: AbortSignal.timeout(5000)
     })
 
-    if (!response.ok) {
-        const text = await response.text().catch(() => '')
-        console.error(`GoldAPI HTTP ${response.status}: ${text.substring(0, 200)}`)
-        return null
-    }
+    if (!response.ok) return null
     const data = await response.json()
     if (!data || data.error || !data.price) return null
     return data
