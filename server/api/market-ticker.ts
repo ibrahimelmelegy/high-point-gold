@@ -20,7 +20,7 @@ export default defineEventHandler(async (event) => {
     const cached = getCached(cacheKey)
     if (cached) return cached
 
-    const apiKey = config.finnhubApiKey
+    const apiKey = config.finnhubApiKey || process.env.FINNHUB_API_KEY || process.env.NUXT_FINNHUB_API_KEY
 
     if (!apiKey) {
         return getFallbackData()

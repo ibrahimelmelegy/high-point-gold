@@ -1,7 +1,7 @@
 // @ts-nocheck
 export default defineEventHandler(async (event) => {
     const config = useRuntimeConfig()
-    const apiKey = config.goldApiKey
+    const apiKey = config.goldApiKey || process.env.GOLD_API_KEY || process.env.NUXT_GOLD_API_KEY
 
     if (!apiKey) {
         return { error: 'GOLD_API_KEY not configured' }

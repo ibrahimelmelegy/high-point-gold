@@ -29,5 +29,8 @@ Thumbs.db
 # Claude
 .claude/
 
+# DigitalOcean
+app-spec.yaml
+
 # Tasks
 tasks/

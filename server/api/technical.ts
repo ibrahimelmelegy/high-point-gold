@@ -11,7 +11,7 @@ export default defineEventHandler(async (event) => {
     const cached = getCached(cacheKey)
     if (cached) return cached
 
-    const apiKey = config.alphaVantageKey
+    const apiKey = config.alphaVantageKey || process.env.ALPHA_VANTAGE_KEY || process.env.NUXT_ALPHA_VANTAGE_KEY
 
     if (!apiKey) {
         return {

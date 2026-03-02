@@ -16,7 +16,7 @@ export default defineEventHandler(async (event) => {
     const cached = getCached(cacheKey)
     if (cached) return cached
 
-    const apiKey = config.geminiApiKey
+    const apiKey = config.geminiApiKey || process.env.GEMINI_API_KEY || process.env.NUXT_GEMINI_API_KEY
 
     if (!apiKey) {
         return {

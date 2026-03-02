@@ -11,7 +11,7 @@ export default defineEventHandler(async (event) => {
     const cached = getCached(cacheKey)
     if (cached) return cached
 
-    const apiKey = config.gnewsApiKey
+    const apiKey = config.gnewsApiKey || process.env.GNEWS_API_KEY || process.env.NUXT_GNEWS_API_KEY
 
     if (!apiKey) {
         return {

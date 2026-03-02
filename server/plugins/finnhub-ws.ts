@@ -145,7 +145,7 @@ function startRestPolling(apiKey: string) {
 
 export default defineNitroPlugin((nitro) => {
   const config = useRuntimeConfig()
-  const apiKey = config.finnhubApiKey as string
+  const apiKey = (config.finnhubApiKey || process.env.FINNHUB_API_KEY || process.env.NUXT_FINNHUB_API_KEY) as string
 
   // Start WebSocket connection after a short delay to let the server boot
   setTimeout(() => connect(apiKey), 2000)
