@@ -1,7 +1,14 @@
 // @ts-nocheck
 import { getCached, setCache } from '../utils/cache'
+import { getExchangeRates, getRate } from '../utils/exchangeRates'
 
 const CACHE_TTL = 60 * 1000 // 60 seconds
+
+// Finnhub symbols for metals
+const FINNHUB_SYMBOLS: Record<string, string> = {
+    'XAU': 'OANDA:XAU_USD',
+    'XAG': 'OANDA:XAG_USD',
+}
 
 export default defineEventHandler(async (event) => {
     const query = getQuery(event)
@@ -13,7 +20,21 @@ export default defineEventHandler(async (event) => {
     const cached = getCached(cacheKey)
     if (cached) return cached
 
-    // Try GoldAPI (primary source)
+    // Try Finnhub REST API (primary - 60 req/min free tier)
+    const finnhubKey = config.finnhubApiKey || process.env.FINNHUB_API_KEY || process.env.NUXT_FINNHUB_API_KEY
+    if (finnhubKey) {
+        try {
+            const data = await fetchFromFinnhub(metal, currency, finnhubKey)
+            if (data) {
+                setCache(cacheKey, data, CACHE_TTL)
+                return data
+            }
+        } catch (e: any) {
+            console.error('Finnhub metal failed:', e.message)
+        }
+    }
+
+    // Try GoldAPI as secondary (300 req/month free tier)
     const goldApiKey = config.goldApiKey || process.env.GOLD_API_KEY || process.env.NUXT_GOLD_API_KEY
     if (goldApiKey) {
         try {
@@ -22,11 +43,9 @@ export default defineEventHandler(async (event) => {
                 setCache(cacheKey, data, CACHE_TTL)
                 return data
             }
-        } catch (e) {
-            console.error('GoldAPI failed:', e)
+        } catch (e: any) {
+            console.error('GoldAPI failed:', e.message)
         }
-    } else {
-        console.warn('No GOLD_API_KEY configured')
     }
 
     // Fallback to mock data
@@ -35,6 +54,74 @@ export default defineEventHandler(async (event) => {
     setCache(cacheKey, mockData, CACHE_TTL)
     return mockData
 })
+
+async function fetchFromFinnhub(metal: string, currency: string, apiKey: string) {
+    const symbol = FINNHUB_SYMBOLS[metal]
+    if (!symbol) return null
+
+    const response = await fetch(
+        `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`,
+        { signal: AbortSignal.timeout(5000) }
+    )
+
+    if (!response.ok) {
+        console.error(`Finnhub metal HTTP ${response.status}`)
+        return null
+    }
+
+    const quote = await response.json()
+    // Finnhub quote: c=current, o=open, h=high, l=low, pc=previous close, t=timestamp
+    if (!quote || !quote.c || quote.c <= 0) {
+        console.error('Finnhub returned no price data for', symbol)
+        return null
+    }
+
+    const priceUSD = quote.c
+    const openUSD = quote.o || priceUSD
+    const highUSD = quote.h || priceUSD
+    const lowUSD = quote.l || priceUSD
+    const prevCloseUSD = quote.pc || priceUSD
+
+    // Convert to requested currency
+    let rate = 1
+    if (currency !== 'USD') {
+        const rates = await getExchangeRates()
+        rate = getRate(rates, currency)
+    }
+
+    const price = priceUSD * rate
+    const openPrice = openUSD * rate
+    const highPrice = highUSD * rate
+    const lowPrice = lowUSD * rate
+    const prevClose = prevCloseUSD * rate
+
+    const now = new Date()
+    const result: any = {
+        timestamp: quote.t || Math.floor(now.getTime() / 1000),
+        metal, currency, exchange: 'FINNHUB', symbol: metal + currency,
+        prev_close_price: prevClose,
+        open_price: openPrice,
+        low_price: lowPrice,
+        high_price: highPrice,
+        open_time: Math.floor(new Date().setHours(0, 0, 0, 0) / 1000),
+        price,
+        ch: price - prevClose,
+        chp: ((price - prevClose) / prevClose) * 100,
+        ask: price + (metal === 'XAU' ? 0.5 * rate : 0.02 * rate),
+        bid: price - (metal === 'XAU' ? 0.5 * rate : 0.02 * rate),
+    }
+
+    if (metal === 'XAU') {
+        result.price_gram_24k = price / 31.1035
+        result.price_gram_22k = (price / 31.1035) * 0.9167
+        result.price_gram_21k = (price / 31.1035) * 0.875
+        result.price_gram_18k = (price / 31.1035) * 0.75
+    } else {
+        result.price_gram = price / 31.1035
+    }
+
+    return result
+}
 
 async function fetchFromGoldAPI(metal: string, currency: string, apiKey: string) {
     const response = await fetch(`https://www.goldapi.io/api/${metal}/${currency}`, {
@@ -51,10 +138,7 @@ async function fetchFromGoldAPI(metal: string, currency: string, apiKey: string)
         return null
     }
     const data = await response.json()
-    if (!data || data.error || !data.price) {
-        console.error('GoldAPI returned invalid data:', JSON.stringify(data).substring(0, 200))
-        return null
-    }
+    if (!data || data.error || !data.price) return null
     return data
 }
 
