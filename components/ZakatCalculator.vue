@@ -240,12 +240,14 @@ const loadData = () => {
   if (typeof window !== 'undefined') {
     const saved = localStorage.getItem('zakat_data');
     if (saved) {
-      const data = JSON.parse(saved);
-      goldGrams.value = data.goldGrams || 0;
-      silverGrams.value = data.silverGrams || 0;
-      cashAmount.value = data.cashAmount || 0;
-      reminderEnabled.value = data.reminderEnabled || false;
-      reminderDate.value = data.reminderDate || new Date().toISOString().split('T')[0];
+      try {
+        const data = JSON.parse(saved);
+        goldGrams.value = data.goldGrams || 0;
+        silverGrams.value = data.silverGrams || 0;
+        cashAmount.value = data.cashAmount || 0;
+        reminderEnabled.value = data.reminderEnabled || false;
+        reminderDate.value = data.reminderDate || new Date().toISOString().split('T')[0];
+      } catch {}
     }
   }
 };

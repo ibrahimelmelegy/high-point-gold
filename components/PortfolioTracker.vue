@@ -230,7 +230,7 @@ onMounted(() => {
   if (typeof window !== 'undefined') {
     const saved = localStorage.getItem('portfolio_holdings');
     if (saved) {
-      holdings.value = JSON.parse(saved);
+      try { holdings.value = JSON.parse(saved); } catch {}
     }
   }
 });

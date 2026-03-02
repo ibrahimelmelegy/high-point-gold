@@ -292,7 +292,7 @@ onMounted(() => {
   if (typeof localStorage !== 'undefined') {
     const savedSettings = localStorage.getItem('hpg-settings')
     if (savedSettings) {
-      settings.value = { ...settings.value, ...JSON.parse(savedSettings) }
+      try { settings.value = { ...settings.value, ...JSON.parse(savedSettings) } } catch {}
     }
     
     const savedTheme = localStorage.getItem('hpg-theme')

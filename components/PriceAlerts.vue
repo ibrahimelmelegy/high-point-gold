@@ -284,7 +284,7 @@ const loadAlerts = () => {
   if (typeof window !== 'undefined') {
     const saved = localStorage.getItem('price_alerts');
     if (saved) {
-      alerts.value = JSON.parse(saved);
+      try { alerts.value = JSON.parse(saved); } catch {}
     }
     
     // Request notification permission

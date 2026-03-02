@@ -14,9 +14,12 @@ export function useRealtimePrices() {
   let eventSource: EventSource | null = null
   let reconnectTimeout: any = null
   let fallbackInterval: any = null
+  let retryCount = 0
+  const MAX_RETRIES = 3
 
   function connect() {
     if (import.meta.server) return
+    if (retryCount >= MAX_RETRIES) return
 
     try {
       eventSource = new EventSource('/api/realtime?stream=true')
@@ -26,14 +29,13 @@ export function useRealtimePrices() {
           const data = JSON.parse(event.data)
 
           if (data.type === 'init') {
-            // Initial snapshot
             Object.entries(data.prices || {}).forEach(([symbol, info]: [string, any]) => {
               prices.value[symbol] = { ...info, previousPrice: info.price }
             })
             connected.value = data.status?.connected || false
             lastUpdate.value = Date.now()
+            retryCount = 0
           } else if (data.type === 'update') {
-            // Live update
             const existing = prices.value[data.symbol]
             prices.value[data.symbol] = {
               symbol: data.symbol,
@@ -43,6 +45,7 @@ export function useRealtimePrices() {
             }
             lastUpdate.value = Date.now()
             connected.value = true
+            retryCount = 0
           }
         } catch {}
       }
@@ -50,38 +53,19 @@ export function useRealtimePrices() {
       eventSource.onerror = () => {
         connected.value = false
         eventSource?.close()
-        // Reconnect after 3 seconds
-        reconnectTimeout = setTimeout(connect, 3000)
+        eventSource = null
+        retryCount++
+        if (retryCount < MAX_RETRIES) {
+          reconnectTimeout = setTimeout(connect, 10000)
+        }
       }
 
       eventSource.onopen = () => {
         connected.value = true
       }
     } catch {
-      // SSE not supported, fallback to polling
-      startPollingFallback()
+      // SSE not supported or failed
     }
-  }
-
-  function startPollingFallback() {
-    const poll = async () => {
-      try {
-        const data = await $fetch<any>('/api/realtime')
-        if (data?.prices) {
-          Object.entries(data.prices).forEach(([symbol, info]: [string, any]) => {
-            const existing = prices.value[symbol]
-            prices.value[symbol] = {
-              ...info,
-              previousPrice: existing?.price || info.price
-            }
-          })
-          connected.value = data.status?.connected || false
-          lastUpdate.value = Date.now()
-        }
-      } catch {}
-    }
-    poll()
-    fallbackInterval = setInterval(poll, 3000)
   }
 
   function disconnect() {

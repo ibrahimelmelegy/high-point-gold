@@ -322,7 +322,7 @@ const loadGoals = () => {
   if (typeof window !== 'undefined') {
     const saved = localStorage.getItem('investment_goals');
     if (saved) {
-      goals.value = JSON.parse(saved);
+      try { goals.value = JSON.parse(saved); } catch {}
     }
   }
 };

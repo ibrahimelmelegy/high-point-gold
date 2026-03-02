@@ -145,7 +145,7 @@ const loadXLSX = async () => {
 const getPortfolioData = () => {
   if (typeof window === 'undefined') return []
   const saved = localStorage.getItem('portfolio')
-  return saved ? JSON.parse(saved) : []
+  try { return saved ? JSON.parse(saved) : [] } catch { return [] }
 }
 
 const exportPortfolio = async (format) => {
