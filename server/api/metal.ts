@@ -45,9 +45,16 @@ async function fetchFromGoldAPI(metal: string, currency: string, apiKey: string)
         signal: AbortSignal.timeout(5000)
     })
 
-    if (!response.ok) return null
+    if (!response.ok) {
+        const text = await response.text().catch(() => '')
+        console.error(`GoldAPI HTTP ${response.status}: ${text.substring(0, 200)}`)
+        return null
+    }
     const data = await response.json()
-    if (!data || data.error || !data.price) return null
+    if (!data || data.error || !data.price) {
+        console.error('GoldAPI returned invalid data:', JSON.stringify(data).substring(0, 200))
+        return null
+    }
     return data
 }
 
